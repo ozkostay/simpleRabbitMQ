@@ -1,0 +1,73 @@
+// Пример получения ответа от API через RabbitMQ на JavaScript
+
+// Файл client.js:
+// JavaScript
+
+const amqp = require('amqplib');
+
+const connection = amqp.connect('amqp://localhost');
+
+const queueName = 'requests';
+const replyToQueue = 'responses';
+
+connection.then((conn) => {
+  conn.createChannel().then((channel) => {
+    channel.assertQueue(queueName, { durable: false });
+    channel.assertQueue(replyToQueue, { durable: false });
+
+    const correlationId = generateUUID();
+
+    channel.consume(replyToQueue, (msg) => {
+      if (msg.properties.correlationId === correlationId) {
+        console.log('Ответ получен:', msg.content.toString());
+      }
+    });
+
+    const num1 = 10;
+    const num2 = 20;
+
+    const message = { num1, num2 };
+    channel.sendToQueue(queueName, Buffer.from(JSON.stringify(message)), {
+      correlationId,
+      replyTo: replyToQueue,
+    });
+
+    console.log('Запрос отправлен:', message);
+  });
+});
+
+function generateUUID() {
+  return ([1e4e + 4e15].replace(/[0-9a-f]/g, (c) =>
+    (c === '0' ? 'a' : c === '9' ? 'f' : Math.random(16) * 16 | Math.floor(Math.random(16))).toString(16)
+  ));
+}
+
+//=======================================================================
+
+// Файл api.js:
+// JavaScript
+
+const amqp = require('amqplib');
+
+const connection = amqp.connect('amqp://localhost');
+
+const queueName = 'requests';
+
+connection.then((conn) => {
+  conn.createChannel().then((channel) => {
+    channel.assertQueue(queueName, { durable: false });
+
+    channel.consume(queueName, (msg) => {
+      const message = JSON.parse(msg.content.toString());
+      const num1 = message.num1;
+      const num2 = message.num2;
+      const sum = num1 + num2;
+
+      const response = { sum };
+
+      channel.sendToQueue(msg.properties.replyTo, Buffer.from(JSON.stringify(response)), {
+        correlationId: msg.properties.correlationId,
+      });
+    });
+  });
+});
